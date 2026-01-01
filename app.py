@@ -11,18 +11,29 @@ from rich.console import Console
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import InMemoryChatMessageHistory
-from langchain_ollama import OllamaLLM
+from langchain_openai import ChatOpenAI
 from tts import TextToSpeechService
 
 console = Console()
 stt = whisper.load_model("base.en")
 
+# ============================================================================
+# HARDCODED OPENAI API KEY
+# ============================================================================
+# ⚠️ WARNING: Hardcoding API keys in source code is a security risk!
+# For production use, use environment variables or a secure config file.
+# Replace 'YOUR_OPENAI_API_KEY_HERE' with your actual OpenAI API key below.
+# ============================================================================
+OPENAI_API_KEY_HARDCODED = ""
+# ============================================================================
+
 # Parse command line arguments
-parser = argparse.ArgumentParser(description="Local Voice Assistant with ChatterBox TTS")
+parser = argparse.ArgumentParser(description="Voice Assistant with OpenAI and ChatterBox TTS")
 parser.add_argument("--voice", type=str, help="Path to voice sample for cloning")
 parser.add_argument("--exaggeration", type=float, default=0.5, help="Emotion exaggeration (0.0-1.0)")
 parser.add_argument("--cfg-weight", type=float, default=0.5, help="CFG weight for pacing (0.0-1.0)")
-parser.add_argument("--model", type=str, default="gemma3", help="Ollama model to use")
+parser.add_argument("--model", type=str, default="gpt-4o-mini", help="OpenAI model to use (e.g., gpt-4o, gpt-4o-mini, gpt-3.5-turbo)")
+parser.add_argument("--api-key", type=str, help="OpenAI API key (or set OPENAI_API_KEY environment variable)")
 parser.add_argument("--save-voice", action="store_true", help="Save generated voice samples")
 args = parser.parse_args()
 
@@ -36,8 +47,25 @@ prompt_template = ChatPromptTemplate.from_messages([
     ("human", "{input}")
 ])
 
-# Initialize LLM
-llm = OllamaLLM(model=args.model, base_url="http://localhost:11434")
+# Initialize OpenAI LLM
+# Get API key from argument, environment variable, or hardcoded key (in that order)
+api_key = args.api_key or os.getenv("OPENAI_API_KEY") or OPENAI_API_KEY_HARDCODED
+
+# Check if API key is still the placeholder
+if not api_key or api_key == "YOUR_OPENAI_API_KEY_HERE":
+    console.print("[red]Error: OpenAI API key not found![/red]")
+    console.print("[yellow]Please do one of the following:[/yellow]")
+    console.print("[yellow]1. Set OPENAI_API_KEY environment variable[/yellow]")
+    console.print("[yellow]2. Use --api-key argument[/yellow]")
+    console.print("[yellow]3. Update OPENAI_API_KEY_HARDCODED in app.py[/yellow]")
+    console.print("[yellow]Example: export OPENAI_API_KEY='your-key-here'[/yellow]")
+    exit(1)
+
+llm = ChatOpenAI(
+    model=args.model,
+    openai_api_key=api_key,
+    temperature=0.7
+)
 
 # Create the chain with modern LCEL syntax
 chain = prompt_template | llm
@@ -116,9 +144,13 @@ def get_llm_response(text: str) -> str:
         config={"session_id": session_id}
     )
 
-    # The response is now a string from the LLM, no need to remove "Assistant:" prefix
-    # since we're using a proper chat model setup
-    return response.strip()
+    # Extract content if response is an AIMessage object, otherwise use as string
+    if hasattr(response, 'content'):
+        response_text = response.content
+    else:
+        response_text = str(response)
+    
+    return response_text.strip()
 
 
 def play_audio(sample_rate, audio_array):
@@ -156,7 +188,7 @@ def analyze_emotion(text: str) -> float:
 
 
 if __name__ == "__main__":
-    console.print("[cyan]🤖 Local Voice Assistant with ChatterBox TTS")
+    console.print("[cyan]🤖 Voice Assistant with OpenAI + ChatterBox TTS")
     console.print("[cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     if args.voice:
@@ -166,7 +198,7 @@ if __name__ == "__main__":
 
     console.print(f"[blue]Emotion exaggeration: {args.exaggeration}")
     console.print(f"[blue]CFG weight: {args.cfg_weight}")
-    console.print(f"[blue]LLM model: {args.model}")
+    console.print(f"[blue]OpenAI model: {args.model}")
     console.print("[cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     console.print("[cyan]Press Ctrl+C to exit.\n")
 
@@ -239,4 +271,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         console.print("\n[red]Exiting...")
 
-    console.print("[blue]Session ended. Thank you for using ChatterBox Voice Assistant!")
+    console.print("[blue]Session ended. Thank you for using the Voice Assistant!")
